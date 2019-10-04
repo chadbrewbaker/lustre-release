@@ -12,7 +12,7 @@ jobs:
     - name: update
       run: sudo apt-get update
     - name: getclang
-      run: sudo apt-get install -y  clang-8 clang-tools-8
+      run: sudo apt-get install -y  clang-8 clang-tools-8 libyaml-dev
     - name: make_config
       run: bash autogen.sh 
     - name: configure
