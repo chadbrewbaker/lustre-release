@@ -1,0 +1,60 @@
+#!/bin/bash
+#
+# Takes a list of modules and unloads them and all dependent modules.
+# If a module cannot be unloaded (e.g. it's in use), an error is
+# returned.
+###############################################################################
+
+# Unload all modules dependent on $1 (exclude removal of $1)
+unload_dep_modules_exclusive() {
+	local MODULE=$1
+	local DEPS="$(lsmod | awk '($1 == "'$MODULE'") { print $4 }')"
+	for SUBMOD in $(echo $DEPS | tr ',' ' '); do
+		unload_dep_modules_inclusive $SUBMOD || return 1
+	done
+	return 0
+}
+
+# Unload all modules dependent on $1 (include removal of $1)
+unload_dep_modules_inclusive() {
+	local MODULE=$1
+
+	# if $MODULE not loaded, return 0
+	lsmod | egrep -q "^\<$MODULE\>" || return 0
+	unload_dep_modules_exclusive $MODULE || return 1
+	rmmod $MODULE || return 1
+	return 0
+}
+
+modules="$@"
+
+# To maintain backwards compatibility, ldiskfs and libcfs must be
+# unloaded if no parameters are given, or if only the ldiskfs parameter
+# is given. It's ugly, but is needed to emulate the prior functionality
+if [ -z "$modules" ] || [ "$modules" = "ldiskfs" ]; then
+	modules="ptlrpc lnet_selftest ldiskfs libcfs"
+fi
+
+if [ -f /sys/kernel/debug/kmemleak ] ; then
+	cat /proc/modules >/tmp/kmemleak-modules-list.txt
+	echo scan > /sys/kernel/debug/kmemleak
+	cat /sys/kernel/debug/kmemleak > /tmp/kmemleak-before-unload.txt
+	test -s /tmp/kmemleak-before-unload.txt && logger -t leak-pre -f /tmp/kmemleak-before-unload.txt
+	rm /tmp/kmemleak-before-unload.txt
+	# Clear everything here so that only new leaks show up
+	# after module unload
+	echo clear > /sys/kernel/debug/kmemleak
+fi
+
+for mod in $modules; do
+	unload_dep_modules_inclusive $mod || exit 1
+done
+
+if [ -f /sys/kernel/debug/kmemleak ] ; then
+	echo scan > /sys/kernel/debug/kmemleak
+	cat /sys/kernel/debug/kmemleak > /tmp/kmemleak-after-unload.txt
+	test -s /tmp/kmemleak-after-unload.txt && logger -t leak-mods -f /tmp/kmemleak-modules-list.txt && logger -t leak-post -f /tmp/kmemleak-after-unload.txt
+	rm -f /tmp/kmemleak-after-unload.txt /tmp/kmemleak-modules-list.txt
+fi
+
+exit 0
