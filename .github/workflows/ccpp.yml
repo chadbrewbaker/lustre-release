@@ -10,7 +10,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: getclang
-      run: sudo apt get install -y clang clang-tools
+      run: sudo apt-get install -y clang clang-tools
     - name: make_config
       run: bash autogen.sh 
     - name: configure
